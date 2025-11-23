@@ -30,9 +30,16 @@ func NewWebServer(address string, port int) *WebServer {
 }
 
 func (s *WebServer) Start() error {
+	// Set default session manager if none is provided
+	if s.sessionManager == nil {
+		s.sessionManager = NewDefaultSessionManager()
+	}
+	s.data.SetSessionManager(s.sessionManager)
+	// if https is enabled, use ListenAndServeTLS
 	if s.withHttps {
 		return s.server.ListenAndServeTLS(s.certFile, s.keyFile)
 	}
+	// else use ListenAndServe
 	return s.server.ListenAndServe()
 }
 
@@ -72,6 +79,7 @@ func (s *WebServer) GetServer() *http.Server {
 
 func (s *WebServer) SetSessionManager(sessionManager SessionManager) {
 	s.sessionManager = sessionManager
+	s.data.SetSessionManager(sessionManager)
 }
 
 func (s *WebServer) GetSessionManager() SessionManager {

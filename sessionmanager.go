@@ -4,4 +4,5 @@ type SessionManager interface {
 	CreateSession() Session
 	GetSession(id string) Session
 	DeleteSession(id string)
+	HasSession(id string) bool
 }
