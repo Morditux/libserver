@@ -8,7 +8,6 @@ import (
 type DefaultSessionManager struct {
 	data map[string]Session
 	mu   *sync.RWMutex
-	id   string
 }
 
 func NewDefaultSessionManager() *DefaultSessionManager {
@@ -26,7 +25,11 @@ func NewDefaultSessionManager() *DefaultSessionManager {
 }
 
 func (s *DefaultSessionManager) CreateSession() Session {
-	return NewDefaultSession()
+	session := NewDefaultSession()
+	s.mu.Lock()
+	s.data[session.Id()] = session
+	s.mu.Unlock()
+	return session
 }
 
 func (s *DefaultSessionManager) GetSession(id string) Session {

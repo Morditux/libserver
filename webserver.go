@@ -6,31 +6,40 @@ import (
 	"net/http"
 )
 
+type contextKey string
+
+const (
+	serverDataKey contextKey = "serverData"
+)
+
 type WebServer struct {
-	address        string
-	port           int
-	server         *http.Server
-	mux            *http.ServeMux
-	data           *ServerData
-	certFile       string
-	keyFile        string
-	withHttps      bool
-	sessionManager SessionManager
+	applicationName string
+	address         string
+	port            int
+	server          *http.Server
+	mux             *http.ServeMux
+	data            *ServerData
+	certFile        string
+	keyFile         string
+	withHttps       bool
+	sessionManager  SessionManager
 }
 
-func NewWebServer(address string, port int) *WebServer {
+func NewWebServer(name, address string, port int) *WebServer {
 	return &WebServer{
-		address:   address,
-		port:      port,
-		server:    &http.Server{Addr: fmt.Sprintf("%s:%d", address, port)},
-		mux:       http.NewServeMux(),
-		data:      NewServerData(),
-		withHttps: false,
+		address:         address,
+		port:            port,
+		server:          &http.Server{Addr: fmt.Sprintf("%s:%d", address, port)},
+		mux:             http.NewServeMux(),
+		data:            NewServerData(),
+		withHttps:       false,
+		applicationName: name,
 	}
 }
 
 func (s *WebServer) Start() error {
 	// Set default session manager if none is provided
+
 	if s.sessionManager == nil {
 		s.sessionManager = NewDefaultSessionManager()
 	}
@@ -56,7 +65,22 @@ func (s *WebServer) Stop() error {
 func (s *WebServer) AddHandlerFunc(pattern string, handler http.HandlerFunc) {
 	// Inject server data into handler
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), "serverData", s.data)
+		// Get session from cookie, if none create one
+		sessionCookie, err := r.Cookie(s.applicationName)
+		if err != nil {
+			sessionCookie = &http.Cookie{
+				Name:     s.applicationName,
+				Value:    s.sessionManager.CreateSession().Id(),
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   s.withHttps,
+			}
+			http.SetCookie(w, sessionCookie)
+		}
+
+		ctx := context.WithValue(r.Context(), serverDataKey, s.data)
+		session := s.sessionManager.GetSession(sessionCookie.Value)
+		ctx = context.WithValue(ctx, s.applicationName, session)
 		handler(w, r.WithContext(ctx))
 	})
 }
@@ -64,7 +88,22 @@ func (s *WebServer) AddHandlerFunc(pattern string, handler http.HandlerFunc) {
 func (s *WebServer) AddHandler(pattern string, handler http.Handler) {
 	// Inject server data into handler
 	s.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), "serverData", s.data)
+		// Get session from cookie, if none create one
+		sessionCookie, err := r.Cookie(s.applicationName)
+		if err != nil {
+			sessionCookie = &http.Cookie{
+				Name:     s.applicationName,
+				Value:    s.sessionManager.CreateSession().Id(),
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   s.withHttps,
+			}
+			http.SetCookie(w, sessionCookie)
+		}
+
+		ctx := context.WithValue(r.Context(), serverDataKey, s.data)
+		session := s.sessionManager.GetSession(sessionCookie.Value)
+		ctx = context.WithValue(ctx, s.applicationName, session)
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
