@@ -1,6 +1,7 @@
 package libserver
 
 type Session interface {
+	Id() string
 	Get(key string) any
 	Set(key string, value any)
 	Delete(key string)

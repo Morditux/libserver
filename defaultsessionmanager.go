@@ -8,6 +8,7 @@ import (
 type DefaultSessionManager struct {
 	data map[string]Session
 	mu   *sync.RWMutex
+	id   string
 }
 
 func NewDefaultSessionManager() *DefaultSessionManager {

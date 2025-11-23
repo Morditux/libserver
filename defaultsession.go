@@ -3,12 +3,15 @@ package libserver
 import (
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type DefaultSession struct {
 	data      map[string]any
 	createdAt time.Time
 	mu        *sync.RWMutex
+	id        string
 }
 
 func NewDefaultSession() *DefaultSession {
@@ -16,6 +19,7 @@ func NewDefaultSession() *DefaultSession {
 		data:      make(map[string]any),
 		createdAt: time.Now(),
 		mu:        &sync.RWMutex{},
+		id:        uuid.New().String(),
 	}
 }
 
@@ -52,4 +56,8 @@ func (s *DefaultSession) Clear() {
 
 func (s *DefaultSession) IsExpired() bool {
 	return time.Since(s.createdAt) > time.Hour
+}
+
+func (s *DefaultSession) Id() string {
+	return s.id
 }
