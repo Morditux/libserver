@@ -77,9 +77,9 @@ func (s *WebServer) AddHandlerFunc(pattern string, handler http.HandlerFunc) {
 			}
 			http.SetCookie(w, sessionCookie)
 		}
-
 		ctx := context.WithValue(r.Context(), serverDataKey, s.data)
 		session := s.sessionManager.GetSession(sessionCookie.Value)
+		session.Update()
 		ctx = context.WithValue(ctx, s.applicationName, session)
 		handler(w, r.WithContext(ctx))
 	})
@@ -100,9 +100,9 @@ func (s *WebServer) AddHandler(pattern string, handler http.Handler) {
 			}
 			http.SetCookie(w, sessionCookie)
 		}
-
 		ctx := context.WithValue(r.Context(), serverDataKey, s.data)
 		session := s.sessionManager.GetSession(sessionCookie.Value)
+		session.Update()
 		ctx = context.WithValue(ctx, s.applicationName, session)
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	})

@@ -8,18 +8,20 @@ import (
 )
 
 type DefaultSession struct {
-	data      map[string]any
-	createdAt time.Time
-	mu        *sync.RWMutex
-	id        string
+	data           map[string]any
+	createdAt      time.Time
+	lastAccessedAt time.Time
+	mu             *sync.RWMutex
+	id             string
 }
 
 func NewDefaultSession() *DefaultSession {
 	return &DefaultSession{
-		data:      make(map[string]any),
-		createdAt: time.Now(),
-		mu:        &sync.RWMutex{},
-		id:        uuid.New().String(),
+		data:           make(map[string]any),
+		createdAt:      time.Now(),
+		lastAccessedAt: time.Now(),
+		mu:             &sync.RWMutex{},
+		id:             uuid.New().String(),
 	}
 }
 
@@ -60,4 +62,14 @@ func (s *DefaultSession) IsExpired() bool {
 
 func (s *DefaultSession) Id() string {
 	return s.id
+}
+
+func (s *DefaultSession) LastAccessedAt() time.Time {
+	return s.lastAccessedAt
+}
+
+func (s *DefaultSession) Update() {
+	s.mu.Lock()
+	s.lastAccessedAt = time.Now()
+	s.mu.Unlock()
 }

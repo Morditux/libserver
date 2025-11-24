@@ -7,5 +7,6 @@ type Session interface {
 	Delete(key string)
 	Has(key string) bool
 	IsExpired() bool
+	Update()
 	Clear()
 }
