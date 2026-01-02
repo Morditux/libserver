@@ -8,14 +8,17 @@ LibServer is a lightweight and flexible Go library designed to simplify web serv
 *   **Automatic Session Management**:
     *   Transparent session management via cookies.
     *   Unique identification by UUID.
-    *   Automatic session expiration (default 1 hour).
+    *   Configurable session expiration (default 1 hour, based on last access time).
     *   Thread-safe in-memory storage.
+    *   Automatic cleanup of expired sessions.
 *   **Shared Server Data**:
     *   Global key-value storage (thread-safe) accessible from all handlers.
     *   Automatic injection into the request context.
+    *   Helper functions for easy context retrieval.
 *   **Extensible Architecture**:
     *   Clear interfaces (`Session`, `SessionManager`) allowing implementation of custom storage strategies (Redis, database, etc.).
 *   **Contextual Integration**: Sessions and server data are automatically injected into each HTTP request's context (`context.Context`).
+*   **Graceful Shutdown**: Proper cleanup of goroutines and resources when stopping the server.
 
 ## Installation
 
@@ -70,14 +73,18 @@ server.Start()
 
 ### 3. Session Management
 
-LibServer automatically manages session creation and retrieval. You can access the current session via the request context.
+LibServer automatically manages session creation and retrieval. You can access the current session via helper functions or directly from the context.
+
+#### Using Helper Functions (Recommended)
 
 ```go
 server.AddHandlerFunc("/session", func(w http.ResponseWriter, r *http.Request) {
-	// Retrieve the session from the context
-	// The key is the application name defined during server creation
-	ctx := r.Context()
-	session := ctx.Value("MyApp").(libserver.Session)
+	// Get session using the helper function
+	session := libserver.GetSessionFromContext(r.Context(), "MyApp")
+	if session == nil {
+		http.Error(w, "No session", http.StatusInternalServerError)
+		return
+	}
 
 	// Write to the session
 	session.Set("username", "JohnDoe")
@@ -89,17 +96,49 @@ server.AddHandlerFunc("/session", func(w http.ResponseWriter, r *http.Request) {
 })
 ```
 
+#### Direct Context Access
+
+```go
+server.AddHandlerFunc("/session", func(w http.ResponseWriter, r *http.Request) {
+	// The key is the ContextKey type with the application name
+	session := r.Context().Value(libserver.ContextKey("MyApp")).(libserver.Session)
+
+	session.Set("username", "JohnDoe")
+	if username := session.Get("username"); username != nil {
+		fmt.Fprintf(w, "Hello, %s!", username)
+	}
+})
+```
+
 ### 4. Shared Server Data (Global State)
 
 `ServerData` allows sharing information between different requests in a thread-safe manner.
 
+#### Using Helper Functions (Recommended)
+
 ```go
 server.AddHandlerFunc("/counter", func(w http.ResponseWriter, r *http.Request) {
-	// Accessing server data
-	// The recommended way is to access via the server object if you have the reference,
-	// or via dependency injection.
+	// Get server data from context
+	data := libserver.GetServerDataFromContext(r.Context())
+	if data == nil {
+		http.Error(w, "No server data", http.StatusInternalServerError)
+		return
+	}
 
-	// Conceptual example if you have access to the `server` object:
+	currentCount := 0
+	if val := data.Get("global_visits"); val != nil {
+		currentCount = val.(int)
+	}
+
+	data.Set("global_visits", currentCount+1)
+	fmt.Fprintf(w, "Global visits: %d", currentCount+1)
+})
+```
+
+#### Direct Access via Server
+
+```go
+server.AddHandlerFunc("/counter", func(w http.ResponseWriter, r *http.Request) {
 	data := server.GetServerData()
 
 	currentCount := 0
@@ -107,15 +146,35 @@ server.AddHandlerFunc("/counter", func(w http.ResponseWriter, r *http.Request) {
 		currentCount = val.(int)
 	}
 
-	data.Set("global_visits", currentCount + 1)
-
-	fmt.Fprintf(w, "Global visits: %d", currentCount + 1)
+	data.Set("global_visits", currentCount+1)
+	fmt.Fprintf(w, "Global visits: %d", currentCount+1)
 })
 ```
 
-> **Note**: In the current implementation, `ServerData` is injected into the context but the `serverDataKey` key is not exported. It is therefore recommended to use `server.GetServerData()` or pass the server instance to your handlers.
+### 5. Configuring Session Expiration
 
-### 5. Using a Custom Session Manager
+You can customize session expiration when creating the session manager.
+
+```go
+import "time"
+
+func main() {
+	server := libserver.NewWebServer("MyApp", "localhost", 8080)
+
+	// Create a session manager with custom settings:
+	// - Cleanup interval: every 30 minutes
+	// - Session expiration: 2 hours of inactivity
+	sessionManager := libserver.NewDefaultSessionManagerWithConfig(
+		30*time.Minute,  // cleanup interval
+		2*time.Hour,     // session expiration
+	)
+	server.SetSessionManager(sessionManager)
+
+	server.Start()
+}
+```
+
+### 6. Using a Custom Session Manager
 
 You can replace the default session manager (in-memory) with your own implementation (for example to use Redis).
 
@@ -124,7 +183,11 @@ type MyRedisSessionManager struct {
     // ... your implementation
 }
 
-// Implement the SessionManager interface...
+// Implement the SessionManager interface:
+// - CreateSession() Session
+// - GetSession(id string) Session
+// - DeleteSession(id string)
+// - HasSession(id string) bool
 
 func main() {
     server := libserver.NewWebServer("MyApp", "localhost", 8080)
@@ -136,14 +199,114 @@ func main() {
 }
 ```
 
+### 7. Graceful Shutdown
+
+The server supports graceful shutdown with proper cleanup of resources.
+
+```go
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	
+	"github.com/Morditux/libserver"
+)
+
+func main() {
+	server := libserver.NewWebServer("MyApp", "localhost", 8080)
+
+	server.AddHandlerFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Hello!")
+	})
+
+	// Handle shutdown signals
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		fmt.Println("Shutting down server...")
+		if err := server.Stop(); err != nil {
+			fmt.Printf("Error stopping server: %v\n", err)
+		}
+	}()
+
+	fmt.Println("Server started on http://localhost:8080")
+	if err := server.Start(); err != nil && err != http.ErrServerClosed {
+		panic(err)
+	}
+}
+```
+
 ## Architecture
 
 *   **WebServer**: The main entry point. It configures the `http.ServeMux` router, manages the HTTP server lifecycle, and orchestrates dependency injection (sessions, data) into requests.
 *   **SessionManager (Interface)**: Defines how sessions are created, retrieved, and deleted.
-    *   `DefaultSessionManager`: Default implementation that stores sessions in memory (`map`) and cleans up expired sessions every hour.
+    *   `DefaultSessionManager`: Default implementation that stores sessions in memory (`map`) and cleans up expired sessions periodically. Supports graceful shutdown via `Stop()`.
 *   **Session (Interface)**: Defines operations on a session (Get, Set, Delete, etc.).
-    *   `DefaultSession`: Default implementation with expiration after one hour.
+    *   `DefaultSession`: Default implementation with configurable expiration based on last access time.
 *   **ServerData**: A thread-safe structure (`sync.RWMutex`) to store global application data.
+
+## API Reference
+
+### Context Keys
+
+| Key | Description |
+|-----|-------------|
+| `libserver.ServerDataKey` | Context key for accessing `*ServerData` |
+| `libserver.ContextKey(appName)` | Context key for accessing the `Session` |
+
+### Helper Functions
+
+| Function | Description |
+|----------|-------------|
+| `GetSessionFromContext(ctx, appName)` | Retrieves the session from context |
+| `GetServerDataFromContext(ctx)` | Retrieves the server data from context |
+
+### DefaultSession Methods
+
+| Method | Description |
+|--------|-------------|
+| `Get(key)` | Retrieves a value |
+| `Set(key, value)` | Stores a value |
+| `Delete(key)` | Removes a value |
+| `Has(key)` | Checks if key exists |
+| `Clear()` | Removes all data |
+| `IsExpired()` | Checks if session is expired |
+| `Update()` | Refreshes last access time |
+| `Id()` | Returns session ID |
+| `CreatedAt()` | Returns creation time |
+| `LastAccessedAt()` | Returns last access time |
+| `ExpirationDuration()` | Returns expiration duration |
+| `SetExpirationDuration(d)` | Sets expiration duration |
+
+### DefaultSessionManager Methods
+
+| Method | Description |
+|--------|-------------|
+| `CreateSession()` | Creates a new session |
+| `GetSession(id)` | Retrieves a session by ID |
+| `DeleteSession(id)` | Deletes a session |
+| `HasSession(id)` | Checks if session exists |
+| `Stop()` | Stops cleanup goroutine |
+| `SessionCount()` | Returns number of active sessions |
+| `SetSessionExpiration(d)` | Sets default session expiration |
+
+### ServerData Methods
+
+| Method | Description |
+|--------|-------------|
+| `Get(key)` | Retrieves a value |
+| `Set(key, value)` | Stores a value |
+| `Delete(key)` | Removes a value |
+| `Has(key)` | Checks if key exists |
+| `Clear()` | Removes all data |
+| `Keys()` | Returns all keys |
+| `Len()` | Returns number of items |
 
 ## Contribution
 
